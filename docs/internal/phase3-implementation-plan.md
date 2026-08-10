@@ -166,6 +166,26 @@ throughout.
 - **Gate: chart render is byte-identical to the Ansible render** in both modes
   (the spark-defaults verification method).
 
+## Follow-up: retire the hand-maintained upstream image lists
+
+The Phase 2 build lane sources third-party image refs from two hand-maintained
+files, `tooling/manifest/upstream-images.txt` (tag from `versions.yaml`) and
+`upstream-images-helm.txt` (tag from an upstream chart's appVersion via
+`helm show`), plus their resolvers. That is a deliberate bridge: no single
+rendered source of the deployed image set exists yet, and the two
+appVersion-derived images (`temporalio/admin-tools`,
+`ghcr.io/open-webui/open-webui`) are a deploy-time tag override that generic
+chart-image extractors read wrong, they see the chart's default tag, not the
+override.
+
+Once 3a-3e make the `deploy/` base renderable, the image set comes from the
+render itself: `helm template` (or the `helm-images` plugin, or a `yq` image
+extractor) over the base captures every image at the tag that actually deploys,
+overrides included, from one source of truth. At that point the haul's image
+list derives from the deploy base rather than the two hand lists, and
+`upstream-images.txt` + `upstream-images-helm.txt` + `resolve_upstream*.py` can
+retire. This is a Phase-3 exit simplification, not a blocker for any sub-phase.
+
 ## Config artifact detail
 
 - **Stamping:** the publish job resolves each Scout chart to its published OCI
