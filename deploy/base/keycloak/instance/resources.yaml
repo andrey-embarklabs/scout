@@ -47,6 +47,22 @@ spec:
     podTemplate:
       spec:
         serviceAccountName: keycloak-opa-bundle-writer
+        # Encryption keystore for brokered ID tokens that arrive JWE-encrypted
+        # (realm ecdhEnc). Optional, so a site that brokers nothing, or has not
+        # seeded the Secret yet, still starts; the realm leaves the key provider
+        # out unless keycloak_ecdh_enabled says the file is there. podTemplate is
+        # strategic-merged, so the container MUST be named keycloak.
+        containers:
+          - name: keycloak
+            volumeMounts:
+              - name: ecdh-keystore
+                mountPath: /opt/keycloak/keystores
+                readOnly: true
+        volumes:
+          - name: ecdh-keystore
+            secret:
+              secretName: keycloak-ecdh-keystore
+              optional: true
   additionalOptions:
     - name: metrics-enabled
       value: 'true'

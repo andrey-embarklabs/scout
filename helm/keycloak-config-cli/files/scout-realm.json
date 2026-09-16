@@ -1285,5 +1285,31 @@
         },
         "protocolMappers": []
       }
-    ]
+    ]{{- if eq (.Values.ecdhEnc.enabled | toString) "true" }},
+    {{- /* Encryption key for brokered ID tokens that arrive JWE-encrypted. Read
+        from a PKCS12 the site mounts into the Keycloak pod, so the kid survives a
+        realm rebuild and the upstream provider keeps encrypting to the same key.
+        keyUse enc is what makes Keycloak publish it in the JWKS; the algorithm
+        must be the one the provider encrypts with, since Keycloak looks the
+        decryption key up by kid AND algorithm. */}}
+    "components": {
+      "org.keycloak.keys.KeyProvider": [
+        {
+          "name": "ecdh-enc-keystore",
+          "providerId": "java-keystore",
+          "subComponents": {},
+          "config": {
+            "priority": ["100"],
+            "enabled": ["true"],
+            "active": ["true"],
+            "algorithm": ["ECDH-ES"],
+            "keyUse": ["enc"],
+            "keystore": ["{{ .Values.ecdhEnc.keystore }}"],
+            "keystorePassword": ["$(env:ecdh_keystore_password)"],
+            "keyAlias": ["{{ .Values.ecdhEnc.keyAlias }}"],
+            "keyPassword": ["$(env:ecdh_keystore_password)"]
+          }
+        }
+      ]
+    }{{- end }}
   }

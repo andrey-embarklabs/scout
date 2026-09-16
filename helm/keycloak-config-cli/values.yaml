@@ -70,6 +70,19 @@ github:
 microsoft:
   enabled: 'false'
 defaultProvider: github
+# An upstream provider that JWE-encrypts the ID token it brokers to this realm can
+# only do so against an encryption key the realm publishes in its JWKS, and Keycloak
+# serves one only from a realm key provider. Enable where the site mounts the PKCS12
+# keystore below into the Keycloak pod; the realm then imports the provider that
+# loads it. Off by default: without that file Keycloak rejects the component.
+# Importing the key rather than generating one keeps its kid stable across a realm
+# rebuild (Keycloak derives the kid from the key), so the upstream provider never has
+# to re-register. The password arrives as $(env:ecdh_keystore_password) via envFrom,
+# like the client secrets.
+ecdhEnc:
+  enabled: 'false'
+  keystore: /opt/keycloak/keystores/scout-ecdh-enc.p12
+  keyAlias: scout-ecdh-enc
 # Comma-separated full ALB-OIDC hostnames the oauth2-proxy client accepts
 # /oauth2/idpresponse from (AWS sites, e.g. superset.<domain>). On-prem uses the
 # oauth2-proxy callback the realm builds from server_hostname, so this can stay empty.

@@ -25,6 +25,7 @@
   "keycloak_alb_oidc_hosts": "superset.scout.example.edu",
   "keycloak_bootstrap_admin_user": "admin",
   "keycloak_default_provider": "github",
+  "keycloak_ecdh_enabled": "false",
   "keycloak_enable_xnat": "false",
   "keycloak_github_enabled": "true",
   "keycloak_microsoft_enabled": "false",

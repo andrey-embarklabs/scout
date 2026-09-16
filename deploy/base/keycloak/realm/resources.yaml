@@ -65,6 +65,13 @@ spec:
       enabled: '${keycloak_microsoft_enabled}'
     defaultProvider: '${keycloak_default_provider}'
     albOidcHosts: '${keycloak_alb_oidc_hosts}'
+    # Import the encryption key provider. Only where the site seeds the
+    # keycloak-ecdh-keystore Secret the instance mounts, plus the matching
+    # ecdh_keystore_password key in keycloak-client-secrets: Keycloak validates the
+    # keystore when the component is created, so enabling it without the file fails
+    # the import Job.
+    ecdhEnc:
+      enabled: '${keycloak_ecdh_enabled}'
     annotations:
       # config-hash: CI stamps the realm file's truncated sha256 at publish so a
       # realm-only change re-runs the import (mirrors the role's config-hash).
