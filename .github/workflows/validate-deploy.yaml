@@ -51,6 +51,43 @@ jobs:
           done < <(find deploy/base -name kustomization.yaml -exec dirname {} \; | sort)
           exit $fail
 
+      - name: Realm renders as JSON with the optional key provider on and off
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys, yaml
+          # scout-realm.json is the single copy of the realm for BOTH lanes, and its
+          # optional blocks are helm conditionals splicing commas into a JSON document.
+          # Nothing else renders it, so a comma mistake ships green; assert both branches
+          # of the newest conditional parse, and that the flag actually drives the block.
+          fail = 0
+          for enabled in ("false", "true"):
+              r = subprocess.run(
+                  ["helm", "template", "t", "helm/keycloak-config-cli",
+                   "--set", "ecdhEnc.enabled=" + enabled],
+                  capture_output=True, text=True)
+              if r.returncode:
+                  print("::error::helm template failed (ecdhEnc.enabled=%s)\n%s" % (enabled, r.stderr))
+                  fail = 1
+                  continue
+              for doc in yaml.safe_load_all(r.stdout):
+                  if not doc or doc.get("kind") != "ConfigMap":
+                      continue
+                  for name, body in (doc.get("data") or {}).items():
+                      try:
+                          realm = json.loads(body)
+                      except json.JSONDecodeError as e:
+                          print("::error::%s is not valid JSON (ecdhEnc.enabled=%s): %s" % (name, enabled, e))
+                          fail = 1
+                          continue
+                      got = "components" in realm
+                      if got != (enabled == "true"):
+                          print("::error::%s: components present=%s with ecdhEnc.enabled=%s" % (name, got, enabled))
+                          fail = 1
+          if fail:
+              sys.exit(1)
+          print("realm renders as valid JSON with the key provider on and off")
+          PY
+
       - name: required-vars covers every substitution
         run: |
           python3 - <<'PY'

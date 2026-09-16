@@ -79,10 +79,20 @@ defaultProvider: github
 # rebuild (Keycloak derives the kid from the key), so the upstream provider never has
 # to re-register. The password arrives as $(env:ecdh_keystore_password) via envFrom,
 # like the client secrets.
+# algorithm must be the one the upstream provider actually encrypts with (the
+# key-wrapping variants ECDH-ES+A128KW/+A192KW/+A256KW are distinct algorithms here):
+# Keycloak looks the decryption key up by kid AND algorithm, so a mismatch fails the
+# return leg with no key found. keystore is the path the instance base mounts the
+# PKCS12 at; the entry must carry a certificate, and its key password must equal the
+# keystore password, since one ecdh_keystore_password opens both.
+# Turning this back off stops importing the provider but does not remove one already
+# imported (the lane runs config-cli with component: no-delete); drop it via the admin
+# API if a site really has to retire the key.
 ecdhEnc:
   enabled: 'false'
   keystore: /opt/keycloak/keystores/scout-ecdh-enc.p12
   keyAlias: scout-ecdh-enc
+  algorithm: ECDH-ES
 # Comma-separated full ALB-OIDC hostnames the oauth2-proxy client accepts
 # /oauth2/idpresponse from (AWS sites, e.g. superset.<domain>). On-prem uses the
 # oauth2-proxy callback the realm builds from server_hostname, so this can stay empty.

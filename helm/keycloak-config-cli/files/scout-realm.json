@@ -1297,12 +1297,11 @@
         {
           "name": "ecdh-enc-keystore",
           "providerId": "java-keystore",
-          "subComponents": {},
           "config": {
             "priority": ["100"],
             "enabled": ["true"],
             "active": ["true"],
-            "algorithm": ["ECDH-ES"],
+            "algorithm": ["{{ .Values.ecdhEnc.algorithm }}"],
             "keyUse": ["enc"],
             "keystore": ["{{ .Values.ecdhEnc.keystore }}"],
             "keystorePassword": ["$(env:ecdh_keystore_password)"],

@@ -6,6 +6,10 @@
 #   keycloak-admin-secret — bootstrap admin (bootstrapAdmin).
 #   opa-bundle-writer     — access/secret-key for the OpaUserBundlePublisher SPI (ADR
 #                           0021), via CR secret refs so no credential lands as plaintext.
+#   keycloak-ecdh-keystore — PKCS12 holding the realm's encryption key, mounted below.
+#                           Only where the realm imports the key provider that reads it
+#                           (keycloak_ecdh_enabled); the volume is optional, so a site
+#                           that seeds nothing still starts.
 ---
 # Scout keycloak image (OpaUserBundlePublisher SPI build), tag = keycloak_version from
 # versions.yaml (Renovate-tracked there); this Scout image IS stamped from the haul at
@@ -48,10 +52,11 @@ spec:
       spec:
         serviceAccountName: keycloak-opa-bundle-writer
         # Encryption keystore for brokered ID tokens that arrive JWE-encrypted
-        # (realm ecdhEnc). Optional, so a site that brokers nothing, or has not
-        # seeded the Secret yet, still starts; the realm leaves the key provider
-        # out unless keycloak_ecdh_enabled says the file is there. podTemplate is
-        # strategic-merged, so the container MUST be named keycloak.
+        # (realm ecdhEnc). Mounted everywhere and optional, so a site that brokers
+        # nothing, or has not seeded the Secret yet, still starts; the realm leaves
+        # the key provider out unless keycloak_ecdh_enabled says the file is there.
+        # Name the container keycloak: the overlay merges onto the operator's own
+        # server container rather than adding a second one beside it.
         containers:
           - name: keycloak
             volumeMounts:

@@ -23,7 +23,7 @@ the secret analog of `required-vars.txt`. Namespaces below are the base's logica
 | `keycloak-db-secret` | `username`, `password` | Keycloak CR datasource (= the keycloak role) |
 | `keycloak-admin-secret` | `username`, `password` | Keycloak bootstrap admin + config-cli |
 | `keycloak-client-secrets` | `oauth2_proxy`, `superset`, `superset_svc`, `jupyterhub`, `grafana`, `temporal`, `launchpad_client`, `minio`, `open_webui`, `voila_svc`, `report_viewer_svc`; `github_client_id`/`github_client_secret` (when `github.enabled`); `microsoft_client_id`/`microsoft_client_secret`/`microsoft_tenant_id` (when `microsoft.enabled`); `xnat` (when `enableXnat`); `ecdh_keystore_password` (when `keycloak_ecdh_enabled`, opening the `keycloak-ecdh-keystore` PKCS12) | config-cli realm import (`envFrom`; keys are the `$(env:...)` var-substitution names) |
-| `keycloak-ecdh-keystore` | `scout-ecdh-enc.p12` (raw PKCS12 bytes) | mounted into the Keycloak pod at `/opt/keycloak/keystores` (when `keycloak_ecdh_enabled`) |
+| `keycloak-ecdh-keystore` | `scout-ecdh-enc.p12` (raw PKCS12 bytes) | mounted into the Keycloak pod at `/opt/keycloak/keystores` (always, optional); read by the realm's key provider when `keycloak_ecdh_enabled` |
 | `valkey-auth` | `password`, `password-file` | Valkey chart + exporter |
 | `launchpad-keycloak-secret` | `client-secret` | launchpad OIDC login (pod-side; = the realm's `launchpad_client` value, not that key) |
 | `launchpad-nextauth-secret` | `secret` | launchpad next-auth session signing (generate-once) |
@@ -88,6 +88,13 @@ oauth2-proxy stays in `ContainerCreating` on the missing mount.
 - Rotating a `keycloak-client-secrets` value does not by itself re-run the config-cli
   import (the Job reads it via `envFrom` by name); it applies on the next realm/chart
   upgrade, or force it with `flux reconcile hr keycloak-config-cli -n <ns>`.
+- `keycloak-ecdh-keystore` has a contract the realm cannot check for you: the PKCS12 must
+  hold the entry under the alias the chart names (`ecdhEnc.keyAlias`, default
+  `scout-ecdh-enc`) with a certificate on it (java-keystore reads the public key from
+  there), and its key password must equal the keystore password, since the single
+  `ecdh_keystore_password` opens both. Keycloak validates all of that when the component
+  is created, so a mismatch fails the config-cli Job and, with it, everything gated on the
+  realm. Seed and verify the Secret before setting `keycloak_ecdh_enabled`.
 - Every enabled component's key must be present. config-cli leaves an unresolved
   `$(env:...)` as literal text, so a missing key would set that client's secret to a
   guessable placeholder. Provision `keycloak-client-secrets` fail-closed (an
