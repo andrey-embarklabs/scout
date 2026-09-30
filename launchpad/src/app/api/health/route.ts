@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 
-// Startup/liveness probe target: no session, catalog read or render, so a slow
-// page on a busy node reads as slow (readiness on /) rather than dead.
+// Startup/liveness probe target (helm/launchpad values): no session, catalog read or render.
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
