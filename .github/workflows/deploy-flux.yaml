@@ -15,6 +15,12 @@ on:
     branches:
       - plt/onprem-ci-proof
   workflow_dispatch:
+    inputs:
+      values:
+        description: 'How scout-secret-values reaches the cluster'
+        type: choice
+        options: [sops, plain]
+        default: sops
 
 permissions:
   contents: read
@@ -29,6 +35,9 @@ env:
   # Same scratch-disk layout as ci.yaml's e2e lane (the CI inventory templates it in).
   K3S_DATA_DIR: /mnt/k3s
   MANIFEST_REPO: ghcr.io/washu-tag/manifests/scout-manifest
+  # sops: the site default (ADR 0031 section 3). plain: the vault fallback, where External
+  # Secrets Operator or Ansible writes the same Secret outside Flux.
+  VALUES_MODE: ${{ inputs.values || 'sops' }}
   # The extractor's dependsOn closure. check_legs.py fails the run when the DAG moves.
   INGEST_KUSTOMIZATIONS: >-
     scout-operators-foundation scout-core-foundation scout-data-foundation
@@ -175,7 +184,7 @@ jobs:
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/flux-system"; rm -rf "$dir"; mkdir -p "$dir"
-          cp .github/ci_resources/flux/flux-system/kustomization.yaml "$dir/"
+          cp .github/ci_resources/flux/flux-system/*.yaml "$dir/"
           flux install --export > "$dir/gotk-components.yaml"
           kubectl apply --server-side -k "$dir"
           for d in source-controller kustomize-controller helm-controller notification-controller; do
@@ -211,19 +220,32 @@ jobs:
           recipient="$(age-keygen -y "$RUNNER_TEMP/age.agekey")"
           kubectl -n flux-system create secret generic sops-age --from-file=age.agekey="$RUNNER_TEMP/age.agekey"
           rm -f "$RUNNER_TEMP/age.agekey"
-          # The values Secret, and a copy for the no-decryption negative case. Each is
-          # written owner-only, encrypted in place, then checked for ciphertext only.
-          for out in "$site/scout-secret-values.yaml:scout-secret-values:flux-system" \
-                     "$neg/ci-neg-encrypted.yaml:ci-neg-encrypted:ci-negative"; do
-            IFS=: read -r file name ns <<<"$out"
+          # Values Secrets are generated owner-only and never printed; an encrypted one is
+          # checked for ciphertext only before it leaves this step.
+          gen() {  # <file> <name> <namespace>
             python3 tooling/deploy/gen_secret_values.py \
               --values .github/ci_resources/flux/secret-values.json \
               --cluster-vars-values "$RUNNER_TEMP/cluster-vars.values.json" \
-              --name "$name" --namespace "$ns" -o "$file"
+              --name "$2" --namespace "$3" -o "$1"
+          }
+          encrypt() {  # <file>
             sops --disable-version-check --encrypt --age "$recipient" \
-              --encrypted-regex '^(data|stringData)$' --in-place "$file"
-            python3 .github/ci_resources/flux/assert_encrypted.py "$file" .github/ci_resources/flux/secret-values.json
-          done
+              --encrypted-regex '^(data|stringData)$' --in-place "$1"
+            python3 .github/ci_resources/flux/assert_encrypted.py "$1" .github/ci_resources/flux/secret-values.json
+          }
+          if [ "$VALUES_MODE" = plain ]; then
+            # Written straight to the cluster, as the vault side would; not in the artifact.
+            gen "$RUNNER_TEMP/scout-secret-values.yaml" scout-secret-values flux-system
+            kubectl apply -f "$RUNNER_TEMP/scout-secret-values.yaml"
+            rm -f "$RUNNER_TEMP/scout-secret-values.yaml"
+            sed -i '/scout-secret-values.yaml/d' "$site/kustomization.yaml"
+          else
+            gen "$site/scout-secret-values.yaml" scout-secret-values flux-system
+            encrypt "$site/scout-secret-values.yaml"
+          fi
+          # The no-decryption negative case's copy, in its own namespace.
+          gen "$neg/ci-neg-encrypted.yaml" ci-neg-encrypted ci-negative
+          encrypt "$neg/ci-neg-encrypted.yaml"
           for a in "scout-site:$site" "ci-negative:$neg"; do
             flux push artifact "oci://${CI_REGISTRY}/${a%%:*}:${VERSION}" --path="${a#*:}" \
               --source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
@@ -240,9 +262,15 @@ jobs:
           verified="$(kubectl -n flux-system get ocirepository scout-config \
             -o jsonpath='{.status.conditions[?(@.type=="SourceVerified")].status}')"
           [ "$verified" = "True" ] || { echo "::error::scout-config is not cosign-verified"; exit 1; }
-          # kustomize-controller decrypted the values Secret: its keys arrive as data.
-          kubectl -n flux-system get secret scout-secret-values -o json \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print(len(d), "values decrypted into Secret flux-system/scout-secret-values")'
+          # The values Secret holds every key in plaintext (decrypted by kustomize-controller
+          # in sops mode). Counts only; no value is printed.
+          kubectl -n flux-system get secret scout-secret-values -o json | python3 -c '
+          import base64, json, sys
+          d = json.load(sys.stdin)["data"]
+          enc = [k for k, v in d.items() if base64.b64decode(v).startswith(b"ENC[")]
+          print(len(d), "values in Secret flux-system/scout-secret-values,", len(enc), "still ciphertext")
+          sys.exit(1 if enc else 0)
+          '
 
       - name: Negative cases
         id: negative
