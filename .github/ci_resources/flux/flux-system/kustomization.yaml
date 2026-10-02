@@ -4,8 +4,10 @@ kind: Kustomization
 # run time) plus the controller flags an on-prem site needs. Strict substitution fails a
 # build on an undefined ${var} instead of rendering it empty; UseHelm3Defaults keeps
 # helm-controller on the Helm 3 install/upgrade/wait behavior the charts are tested with.
+# sops-guard.yaml goes in with Flux, before any site Kustomization applies a Secret.
 resources:
   - gotk-components.yaml
+  - sops-guard.yaml
 patches:
   - target:
       kind: Deployment

@@ -262,6 +262,11 @@ jobs:
           set -euo pipefail
           kubectl apply -f .github/ci_resources/flux/roots-apps.yaml
           python3 .github/ci_resources/flux/wait_ready.py "$INGEST_KUSTOMIZATIONS" 2700
+      # An air-gapped site pulls through the staging Harbor's proxies only.
+      - name: Images come from mirrored registries
+        id: images
+        continue-on-error: true # prototype: record the verdict, keep going, fail at the end
+        run: python3 .github/ci_resources/flux/check_images.py
       - name: 'Wait for Gradle cache warming'
         shell: bash
         run: |
@@ -296,16 +301,25 @@ jobs:
           kubectl -n scout-extractor logs deployment/hl7log-extractor --tail=200
           kubectl -n scout-extractor logs deployment/hl7-transformer --tail=200
       - name: Diagnostics
-        if: failure() || steps.negative.outcome == 'failure'
+        if: failure() || steps.negative.outcome == 'failure' || steps.images.outcome == 'failure'
         shell: bash
         run: bash .github/ci_resources/flux/diagnose.sh
+      # Sizing record for the platform leg (5c-2): what the ingest leg asked for and used.
+      - name: Node capacity
+        if: always() && steps.reconcile.outcome != 'skipped'
+        shell: bash
+        run: |
+          kubectl describe node | sed -n '/Allocated resources/,/Events:/p'
+          kubectl top pods -A --sort-by=memory 2>&1 | head -40
+          free -m
       - name: Verdict
         if: always()
         shell: bash
         env:
           NEGATIVE: ${{ steps.negative.outcome }}
+          IMAGES: ${{ steps.images.outcome }}
         run: |
-          if [ "$NEGATIVE" = "failure" ]; then
-            echo "::error::the negative cases failed (see that step)"
-            exit 1
-          fi
+          rc=0
+          if [ "$NEGATIVE" = "failure" ]; then echo "::error::the negative cases failed (see that step)"; rc=1; fi
+          if [ "$IMAGES" = "failure" ]; then echo "::error::an image comes from an unmirrored registry"; rc=1; fi
+          exit $rc

@@ -106,9 +106,12 @@ def main() -> None:
         problems.append("ci-neg-nodecrypt: no Ready verdict within {}s".format(TIMEOUT))
     else:
         print("ci-neg-nodecrypt: Ready={} reason={}\n  {}".format(r[0], r[1], masked(r[2])))
-        # kustomize-controller's guard: "<Secret> is SOPS encrypted, configuring
-        # decryption is required for this secret to be reconciled".
-        if r[0] != "False" or "is SOPS encrypted" not in r[2]:
+        # Rejected by the site's admission guard (flux-system/sops-guard.yaml), or by
+        # kustomize-controller's own check ("<Secret> is SOPS encrypted, configuring
+        # decryption is required ..."), which v1.9.6 skips (see sops-guard.yaml).
+        if r[0] != "False" or not any(
+            s in r[2] for s in ("reject-sops-ciphertext", "is SOPS encrypted")
+        ):
             problems.append("ci-neg-nodecrypt: expected Ready=False for a SOPS-encrypted Secret")
     created = secrets_in("ci-negative")
     if created:
