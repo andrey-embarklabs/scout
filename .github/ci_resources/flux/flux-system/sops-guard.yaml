@@ -2,14 +2,18 @@
 # spec.decryption applies: kustomize-controller's own guard looks for the top-level sops
 # field after normalizing the Secret, and normalizing drops that field (seen on v1.9.6),
 # so the ENC[...] strings land as the values and secrets-ready would spread them into
-# every Scout Secret. Bytes compare in order, so the range test is a prefix check that
-# never errors on binary data.
+# every Scout Secret.
+#
+# The policy sees data values as their base64 text. 'ENC[AES256_GCM,' is 15 bytes, a
+# whole number of base64 groups, so every ciphertext value starts with its encoding,
+# RU5DW0FFUzI1Nl9HQ00s. failurePolicy Ignore: an evaluation error must not block every
+# Secret write in the cluster; the CI negative case proves the policy denies.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
   name: reject-sops-ciphertext
 spec:
-  failurePolicy: Fail
+  failurePolicy: Ignore
   matchConstraints:
     resourceRules:
       - apiGroups: ['']
@@ -19,7 +23,7 @@ spec:
   validations:
     - expression: >-
         !has(object.data) || object.data.all(k,
-        !(object.data[k] >= b'ENC[AES256_GCM,' && object.data[k] < b'ENC[AES256_GCM-'))
+        !(type(object.data[k]) == string && dyn(object.data[k]).startsWith('RU5DW0FFUzI1Nl9HQ00s')))
       message: >-
         Secret data holds SOPS ciphertext: the Kustomization that applies it needs
         spec.decryption.
