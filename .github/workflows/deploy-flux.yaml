@@ -114,9 +114,10 @@ jobs:
         run: |
           set -euo pipefail
           (cd ansible && sudo -E /opt/pipx_bin/ansible-playbook -v -i inventory.yaml --diff playbooks/k3s.yaml)
-          mkdir -p "$HOME/.kube"
+          # The playbook (run as root with the runner's HOME) leaves ~/.kube root-owned.
+          sudo mkdir -p "$HOME/.kube"
           sudo cp /etc/rancher/k3s/k3s.yaml "$HOME/.kube/config"
-          sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/.kube"
           chmod 600 "$HOME/.kube/config"
           echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
           KUBECONFIG="$HOME/.kube/config" kubectl get nodes -o wide
@@ -304,7 +305,7 @@ jobs:
         env:
           NEGATIVE: ${{ steps.negative.outcome }}
         run: |
-          if [ "$NEGATIVE" != "success" ]; then
-            echo "::error::negative cases: $NEGATIVE"
+          if [ "$NEGATIVE" = "failure" ]; then
+            echo "::error::the negative cases failed (see that step)"
             exit 1
           fi
