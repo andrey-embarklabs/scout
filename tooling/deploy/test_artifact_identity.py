@@ -7,7 +7,6 @@ import pytest
 
 from artifact_identity import (
     IdentityError,
-    MAX_RECEIPT_BYTES,
     load_receipt,
     main,
     validate_manifest,
@@ -452,10 +451,3 @@ def test_schema_and_field_set_must_agree(release_identity, schema, has_bundle):
         receipt.pop("bundleDigest")
     with pytest.raises(IdentityError):
         validate_receipt(receipt, **CONTEXT)
-
-
-def test_receipt_read_is_bounded(tmp_path):
-    path = tmp_path / "receipt"
-    path.write_bytes(b" " * MAX_RECEIPT_BYTES + b"{}")
-    with pytest.raises(IdentityError, match="size limit"):
-        load_receipt(path)

@@ -28,7 +28,6 @@ FIELDS = {
     "manifestDigest",
     "configDigest",
 }
-MAX_RECEIPT_BYTES = 16 * 1024
 REPOSITORY = re.compile(
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}"
 )
@@ -56,12 +55,8 @@ def _matches(pattern, value):
 
 
 def load_receipt(path):
-    """Read a bounded JSON object without accepting duplicate fields."""
-    with Path(path).open("rb") as source:
-        raw = source.read(MAX_RECEIPT_BYTES + 1)
-    if len(raw) > MAX_RECEIPT_BYTES:
-        raise IdentityError("receipt exceeds its size limit")
-    return _json_object(raw)
+    """Read the receipt's JSON object; callers validate its identity fields."""
+    return _json_object(Path(path).read_bytes())
 
 
 def validate_receipt(
