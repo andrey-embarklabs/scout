@@ -5,7 +5,14 @@ import json
 
 import pytest
 
-from artifact_identity import IdentityError, main, validate_manifest, validate_receipt
+from artifact_identity import (
+    IdentityError,
+    MAX_RECEIPT_BYTES,
+    load_receipt,
+    main,
+    validate_manifest,
+    validate_receipt,
+)
 
 
 CONTEXT = {
@@ -318,3 +325,137 @@ def test_create_rejects_invalid_identity_without_writing(identity, tmp_path):
         == 1
     )
     assert not path.exists()
+
+
+@pytest.fixture
+def release_identity(identity):
+    receipt, raw = identity
+    receipt.update(schemaVersion=2, bundleDigest="sha256:" + "b" * 64)
+    manifest = json.loads(raw)
+    manifest["annotations"]["io.scout.build.bundle-digest"] = receipt["bundleDigest"]
+    raw = json.dumps(manifest).encode()
+    receipt["configDigest"] = digest(raw)
+    return receipt, raw
+
+
+def test_schema2_create_validate_exports_bound_bundle(release_identity, tmp_path):
+    receipt, raw = release_identity
+    path, manifest, output = [
+        tmp_path / name for name in ("receipt", "manifest", "out")
+    ]
+    assert (
+        main(
+            [
+                "create",
+                *context_args(),
+                "--version",
+                receipt["version"],
+                "--manifest-digest",
+                receipt["manifestDigest"],
+                "--bundle-digest",
+                receipt["bundleDigest"],
+                "--config-digest",
+                receipt["configDigest"],
+                "--output",
+                str(path),
+            ]
+        )
+        == 0
+    )
+    assert load_receipt(path) == receipt
+    manifest.write_bytes(raw)
+    assert (
+        main(
+            [
+                "validate",
+                *context_args(),
+                "--receipt",
+                str(path),
+                "--manifest",
+                str(manifest),
+                "--require-bundle",
+                "--github-output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    assert (
+        output.read_text().splitlines()[-1]
+        == "bundle_digest=" + receipt["bundleDigest"]
+    )
+
+
+def test_schema1_is_accepted_only_outside_release(identity, tmp_path):
+    receipt, _ = identity
+    validate_receipt(receipt, **CONTEXT)
+    with pytest.raises(IdentityError, match="release requires"):
+        validate_receipt(receipt, **CONTEXT, require_bundle=True)
+    path, output = tmp_path / "receipt", tmp_path / "output"
+    path.write_text(json.dumps(receipt))
+    assert (
+        main(
+            [
+                "validate",
+                *context_args(),
+                "--receipt",
+                str(path),
+                "--require-bundle",
+                "--github-output",
+                str(output),
+            ]
+        )
+        == 1
+    )
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        "",
+        "latest",
+        "sha256:" + "A" * 64,
+        True,
+        "sha256:" + "a" * 64 + "\nevil=yes",
+    ],
+)
+def test_schema2_rejects_invalid_bundle(release_identity, value):
+    receipt, _ = release_identity
+    receipt["bundleDigest"] = value
+    with pytest.raises(IdentityError, match="invalid bundleDigest"):
+        validate_receipt(receipt, **CONTEXT, require_bundle=True)
+
+
+@pytest.mark.parametrize("change", ["remove", "tamper", "wrong_type"])
+def test_signed_bundle_annotation_is_required(release_identity, change):
+    receipt, raw = release_identity
+    manifest = json.loads(raw)
+    if change == "remove":
+        del manifest["annotations"]["io.scout.build.bundle-digest"]
+    else:
+        manifest["annotations"]["io.scout.build.bundle-digest"] = (
+            "sha256:" + "c" * 64 if change == "tamper" else True
+        )
+    raw = json.dumps(manifest).encode()
+    receipt["configDigest"] = digest(raw)
+    with pytest.raises(IdentityError, match="OCI annotation mismatch"):
+        validate_manifest(raw, receipt)
+
+
+@pytest.mark.parametrize("schema,has_bundle", [(1, True), (2, False), (3, True)])
+def test_schema_and_field_set_must_agree(release_identity, schema, has_bundle):
+    receipt, _ = release_identity
+    receipt["schemaVersion"] = schema
+    if not has_bundle:
+        receipt.pop("bundleDigest")
+    with pytest.raises(IdentityError):
+        validate_receipt(receipt, **CONTEXT)
+
+
+def test_receipt_read_is_bounded(tmp_path):
+    path = tmp_path / "receipt"
+    path.write_bytes(b" " * MAX_RECEIPT_BYTES + b"{}")
+    with pytest.raises(IdentityError, match="size limit"):
+        load_receipt(path)

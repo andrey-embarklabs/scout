@@ -8,6 +8,8 @@ on:
     paths:
       - deploy/**
       - tooling/deploy/**
+      - tooling/manifest/**
+      - tooling/release/**
       # The realm config-cli imports + the config-hash it is stamped from live here.
       - helm/keycloak-config-cli/**
       # The per-mode S3A SSE render guard below.
@@ -16,9 +18,19 @@ on:
       - .github/workflows/validate-deploy.yaml
       - .github/workflows/deploy-flux.yaml
       - .github/workflows/ci.yaml
+      - .github/workflows/release*.yaml
+      - .github/workflows/promote-release.yaml
+      - .github/workflows/bootstrap-haul.yaml
+      - .github/workflows/seed-charts.yaml
       - .github/ci_resources/flux/**
       - .github/actions/install-flux/**
       - .github/actions/publish-haul/**
+      - .github/actions/docker-build-cache/**
+      - .github/actions/docker-push/**
+      - .github/actions/k3s-image-import-or-pull/**
+      - .github/actions/trivy-scan-image/**
+      - .github/scripts/freeze-predecessor.sh
+      - .github/scripts/chart-app-version.sh
       # OPA data-doc drift guard reads the Ansible source; re-run on those too.
       - ansible/roles/opa/defaults/main.yaml
       - ansible/roles/scout_common/defaults/main.yaml
@@ -53,8 +65,8 @@ jobs:
       # The on-prem floor (kustomize-controller v1.9.6); export and dry-run are offline.
       - uses: ./.github/actions/install-flux
 
-      - name: Test deployment tooling and artifact identity
-        run: python3 -m pytest -q tooling/deploy .github/ci_resources/flux/test_*.py
+      - name: Test deployment, producer ancestry, and release identity
+        run: python3 -m pytest -q tooling/deploy tooling/manifest tooling/release .github/ci_resources/flux/test_*.py
 
       - name: Validate the on-prem CI inputs
         run: |

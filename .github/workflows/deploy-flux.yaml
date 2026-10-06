@@ -73,6 +73,7 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
       config_digest: ${{ steps.validate.outputs.config_digest }}
       manifest_digest: ${{ steps.validate.outputs.manifest_digest }}
+      bundle_digest: ${{ steps.validate.outputs.bundle_digest }}
     env:
       PRODUCER_RUN_ID: ${{ github.event.workflow_run.id }}
       PRODUCER_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
@@ -140,6 +141,7 @@ jobs:
       RECEIPT_VERSION: ${{ needs.identity.outputs.version }}
       RECEIPT_CONFIG_DIGEST: ${{ needs.identity.outputs.config_digest }}
       RECEIPT_MANIFEST_DIGEST: ${{ needs.identity.outputs.manifest_digest }}
+      RECEIPT_BUNDLE_DIGEST: ${{ needs.identity.outputs.bundle_digest }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -172,6 +174,7 @@ jobs:
           set -euo pipefail
           cp cosign.pub "$RUNNER_TEMP/cosign.pub"
           export VERSION="$RECEIPT_VERSION" MANIFEST_DIGEST="$RECEIPT_MANIFEST_DIGEST"
+          export BUNDLE_DIGEST="$RECEIPT_BUNDLE_DIGEST"
           export CONFIG_SOURCE="$CONFIG_REPO" CONFIG_DIGEST="$RECEIPT_CONFIG_DIGEST" CONFIG_INSECURE=false
           bash .github/ci_resources/flux/verify_config.sh
       - name: Install the registry
@@ -535,6 +538,68 @@ jobs:
           if [ "$NEGATIVE" = "failure" ]; then echo "::error::the negative cases failed (see that step)"; rc=1; fi
           if [ "$IMAGES" = "failure" ]; then echo "::error::an image comes from an unmirrored registry"; rc=1; fi
           exit $rc
+
+  release-proof:
+    name: Record published artifact proof
+    needs: [identity, deploy]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'workflow_run' &&
+      github.repository == 'washu-tag/scout' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == 'washu-tag/scout' &&
+      needs.identity.result == 'success' &&
+      needs.identity.outputs.present == 'true' &&
+      needs.identity.outputs.bundle_digest &&
+      needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    env:
+      PRODUCER_RUN_ID: ${{ github.event.workflow_run.id }}
+      PRODUCER_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+      RECEIPT_VERSION: ${{ needs.identity.outputs.version }}
+      RECEIPT_CONFIG_DIGEST: ${{ needs.identity.outputs.config_digest }}
+      RECEIPT_MANIFEST_DIGEST: ${{ needs.identity.outputs.manifest_digest }}
+      RECEIPT_BUNDLE_DIGEST: ${{ needs.identity.outputs.bundle_digest }}
+      PROOF_NAME: scout-release-proof-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}-${{ github.run_attempt }}
+    steps:
+      # The workflow revision is separate from the producer revision under test.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Bind both deployment legs to this consumer attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp \
+            "/repos/washu-tag/scout/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs?per_page=100" \
+            > "$RUNNER_TEMP/proof-jobs.json"
+          python3 tooling/deploy/artifact_identity.py create \
+            --repository washu-tag/scout --revision "$TESTED_SHA" \
+            --run-id "$PRODUCER_RUN_ID" --run-attempt "$PRODUCER_RUN_ATTEMPT" \
+            --version "$RECEIPT_VERSION" --manifest-digest "$RECEIPT_MANIFEST_DIGEST" \
+            --bundle-digest "$RECEIPT_BUNDLE_DIGEST" --config-digest "$RECEIPT_CONFIG_DIGEST" \
+            --output "$RUNNER_TEMP/proof-producer.json"
+          python3 tooling/deploy/proof_receipt.py create \
+            --producer "$RUNNER_TEMP/proof-producer.json" \
+            --repository washu-tag/scout --revision "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --jobs "$RUNNER_TEMP/proof-jobs.json" \
+            --output "$RUNNER_TEMP/${PROOF_NAME}.json"
+      - name: Upload the exact-attempt release proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.PROOF_NAME }}
+          path: ${{ runner.temp }}/${{ env.PROOF_NAME }}.json
+          if-no-files-found: error
+          retention-days: 90
 
   published-status:
     name: Report the published artifact proof
