@@ -445,18 +445,21 @@ exists is complete. Change detection diffs against the *last successful
 manifest's* source commit, not the single push: a failed or skipped
 publish is absorbed by the next merge's build, which sees the intervening
 changes and rebuilds what they touched. Digests for untouched components
-resolve from the last successful manifest; the first run bootstraps from
-the current `latest` digests. Paths are classified before anything is
-built: nothing deployable touched → skip, no version published; CI or
-build tooling touched → rebuild everything; otherwise → rebuild what was
-touched and record the rest. The skip cannot be implemented by comparing
-outputs — charts and the config artifact embed the new tag, so their bytes
+resolve from the last successful manifest; a legacy manifest without source
+provenance triggers a complete fresh build without carrying unsigned component
+data. Paths are classified before anything is
+built: nothing deployable touched → skip, no version published. The CI
+component filters define affected artifacts: shared image-build tooling rebuilds
+images and their coupled charts, chart-packaging tooling rebuilds charts, and
+config/bundle inputs refresh the package without rebuilding images. Otherwise,
+rebuild the touched components and record the rest. The skip cannot be implemented
+by comparing outputs: charts and the config artifact embed the new tag, so their bytes
 always differ from the previous build's.
 
-**Concurrency.** The publish job runs under a GitHub Actions concurrency
-group and refuses to publish for a commit older than the last manifest's
-source commit, so re-running an old failed job after a newer publish
-cannot stamp newer state with an older tag. This ordering guard assumes
+**Concurrency.** The main workflow holds a GitHub Actions concurrency group
+from predecessor selection through config publication and refuses to publish
+for a commit older than the last manifest's source commit. Re-running an old
+failed job after a newer publish cannot stamp newer state with an older tag. This ordering guard assumes
 `main`'s history is linear — the squash-only setting (Section 4) plus
 branch protection's linear-history requirement keep it true.
 
@@ -491,3 +494,28 @@ version, which matches what the manifest records for it.
 with no manifest. Nothing references them; the next successful publish
 supersedes them, and they are candidates for whatever pruning eventually
 exists.
+
+
+### Producer planning implementation
+
+The `changes` job freezes and verifies the published predecessor once, then
+records source revision, workflow run/attempt, accumulated paths and required
+fresh components in an attempt-specific plan. Publishing rejects a plan from
+another attempt and fails when a planned fresh digest is absent. A partial CI
+rerun that needs a previous attempt's build must be retried with all jobs.
+
+If GitHub replaces a pending main run with a newer one, the surviving run
+compares against the last published predecessor and includes the skipped run's
+source changes. A failed build does not advance that predecessor.
+
+Component directories and shared image/chart/package inputs remain in the
+existing CI path filters. Changes to `versions.yaml` repackage only the four
+charts whose app versions consume that file and refresh the upstream-image
+inventory. Other image bytes are carried by digest. PR deployment tests retain
+the existing documentation and unrelated-workflow exclusions.
+
+This change leaves the existing Ansible deployment gates and release workflow
+in place. Running the candidate through Flux and publishing the bytes tested
+there is a separate change. Bootstrap and chart-seeding workflows publish
+versioned recovery artifacts without moving the serialized producer's `main`
+aliases.
