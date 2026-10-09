@@ -719,6 +719,41 @@ def test_planner_inventory_and_workflow_matrices_stay_in_sync():
         assert calls and all(step["with"]["advance-main"] == "false" for step in calls)
 
 
+@pytest.mark.parametrize(
+    "job_name",
+    (
+        "changes",
+        "scan-images",
+        "publish",
+        "publish-charts",
+        "publish-haul",
+        "config-artifact-publish",
+    ),
+)
+def test_yaml_consumers_install_into_the_selected_python(job_name):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yaml").read_text())
+    selected, installed = -1, -1
+    for index, step in enumerate(workflow["jobs"][job_name]["steps"]):
+        command, action = step.get("run", ""), step.get("uses", "")
+        if action.startswith("actions/setup-python@"):
+            selected = index
+        if "python3 -m pip install pyyaml" in command:
+            installed = index
+        if (
+            "producer_plan.py" in command
+            or "freeze-predecessor.sh" in command
+            or "stamp_config.py" in command
+            or action == "./.github/actions/trivy-scan-image"
+            or (
+                action == "./.github/actions/publish-haul"
+                and step.get("with", {}).get("producer-plan")
+            )
+        ):
+            assert (
+                installed > selected
+            ), f"{job_name}: PyYAML must be installed after selecting Python"
+
+
 @pytest.fixture
 def freeze_tools(tmp_path):
     bindir = tmp_path / "bin"
