@@ -13,6 +13,9 @@ jobs:
   build:
     needs: changes
     runs-on: ubuntu-latest
+    outputs:
+      a: ${{ matrix.image == 'a' && steps.upload.outputs.artifact-id || '' }}
+      b: ${{ matrix.image == 'b' && steps.upload.outputs.artifact-id || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -25,8 +28,9 @@ jobs:
         run: |
           printf '%s:%s\n' "$GENERATION" "$GITHUB_RUN_ATTEMPT" > "$IMAGE.txt"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: upload
         with:
-          name: ${{ matrix.image }}-attempt-${{ needs.changes.outputs.artifact-attempt }}
+          name: ${{ matrix.image }}-attempt-${{ github.run_attempt }}
           path: ${{ matrix.image }}.txt
           if-no-files-found: error
           retention-days: 1
@@ -36,11 +40,15 @@ jobs:
   candidate:
     needs: [changes, build]
     runs-on: ubuntu-latest
+    outputs:
+      metadata-id: ${{ steps.metadata.outputs.artifact-id }}
+      images-id: ${{ steps.images.outputs.artifact-id }}
     steps:
       - run: echo "$GITHUB_RUN_ATTEMPT" > metadata.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: metadata
         with:
-          name: candidate-${{ needs.changes.outputs.artifact-attempt }}
+          name: candidate-${{ github.run_attempt }}
           path: metadata.txt
           if-no-files-found: error
           retention-days: 1
@@ -48,8 +56,9 @@ jobs:
         run: test "$GITHUB_RUN_ATTEMPT" -ne 2
       - run: echo "$GITHUB_RUN_ATTEMPT" > images.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: images
         with:
-          name: images-${{ needs.changes.outputs.artifact-attempt }}
+          name: images-${{ github.run_attempt }}
           path: images.txt
           if-no-files-found: error
           retention-days: 1
@@ -61,18 +70,23 @@ jobs:
     env:
       GENERATION: ${{ needs.changes.outputs.artifact-attempt }}
     steps:
+      - id: builds
+        env:
+          ARTIFACTS: ${{ toJSON(needs.build.outputs) }}
+        run: echo "ids=$(jq -er '[.[] | select(. != "") | tonumber] | join(",")' <<< "$ARTIFACTS")" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          pattern: '*-attempt-${{ needs.changes.outputs.artifact-attempt }}'
+          artifact-ids: ${{ steps.builds.outputs.ids }}
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: candidate-${{ needs.changes.outputs.artifact-attempt }}
+          artifact-ids: ${{ needs.candidate.outputs.metadata-id }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: images-${{ needs.changes.outputs.artifact-attempt }}
+          artifact-ids: ${{ needs.candidate.outputs.images-id }}
       - name: Check the original bytes and fail the first consumer execution
         run: |
+          printf 'generation=%s a=%s b=%s metadata=%s images=%s\n' "$GENERATION" "$(cat a.txt)" "$(cat b.txt)" "$(cat metadata.txt)" "$(cat images.txt)"
           if [ "$GITHUB_RUN_ATTEMPT" -lt 6 ]; then
             test "$GENERATION" = 1
             test "$(cat a.txt)" = '1:1'
@@ -85,7 +99,7 @@ jobs:
           test "$(cat metadata.txt)" = "$(cat images.txt)"
           if [ "$GITHUB_RUN_ATTEMPT" -lt 6 ]; then test "$(cat metadata.txt)" = 3; fi
           if [ "$GITHUB_RUN_ATTEMPT" = 6 ]; then test "$(cat metadata.txt)" = 6; fi
-          if [ "$GITHUB_RUN_ATTEMPT" = 3 ]; then exit 1; fi
+          if [ "$GITHUB_RUN_ATTEMPT" = 3 ]; then echo 'Intentional failure after all artifact checks passed'; exit 1; fi
   unrelated:
     runs-on: ubuntu-latest
     steps:
