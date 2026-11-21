@@ -35,6 +35,20 @@ containerd's default registry endpoint fallback on new and existing servers and
 agents. Changes trigger the same restart as registry mirror updates. Registries
 without a configured mirror can still use their default endpoint.
 
+Upstreams use Harbor's proxy-cache projects by default. For a disconnected site,
+preload normal Harbor projects and select their repository prefixes in inventory:
+
+```yaml
+k3s_registry_mirror_prefixes:
+  docker.io: scout-upstream/docker.io
+  ghcr.io: scout-upstream/ghcr.io
+  quay.io: scout-upstream/quay.io
+```
+
+Prefixes are relative to Harbor; the projects and images must already exist.
+Run `make install-k3s` to apply routing changes through the existing node restart.
+The configured Harbor CA, pull robot and fallback setting also apply to these paths.
+
 ## Dependencies
 
 - `scout_common` role (for Helm chart deployment patterns)

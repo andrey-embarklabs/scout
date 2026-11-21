@@ -19,6 +19,9 @@ k3s_binary_base_url: https://github.com/k3s-io/k3s/releases/download
 # When false: Uses online installation via get.k3s.io
 air_gapped: false
 
+# Preloaded Harbor repository prefixes, keyed by upstream registry hostname.
+k3s_registry_mirror_prefixes: {}
+
 # Cluster join token (required)
 # All servers and agents must use the same token
 k3s_token: ''

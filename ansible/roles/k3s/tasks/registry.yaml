@@ -1,7 +1,5 @@
 ---
-# Harbor Registry Mirror Configuration
-# Configures k3s to use Harbor pull-through proxy for air-gapped deployments
-# Only runs when staging node is available and air_gapped=true
+# Harbor registry mirrors for staging-enabled air-gapped deployments.
 
 - name: Check if staging node is enabled
   ansible.builtin.set_fact:
@@ -95,7 +93,7 @@
               endpoint:
                 - "{{ staging_harbor_host }}"
               rewrite:
-                "^(.*)$": "{{ proxy.project_name }}/$1"
+                "^(.*)$": "{{ k3s_registry_mirror_prefixes.get(proxy.public_registry, proxy.project_name) }}/$1"
           {% endfor %}
           {% if staging_uses_self_signed_cert | bool or k3s_harbor_pull_auth %}
           configs:
@@ -112,7 +110,7 @@
           {% endif %}
         mode: "{{ '0600' if k3s_harbor_pull_auth else '0644' }}"
       register: registry_config_task_result
-      no_log: '{{ k3s_harbor_pull_auth | default(false) }}'
+      no_log: true
 
 - name: Disable public fallback for staging registry mirrors
   when: use_staging_node
