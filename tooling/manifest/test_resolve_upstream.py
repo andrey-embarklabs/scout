@@ -1,8 +1,36 @@
 """Offline tests for resolve_upstream. No network."""
 
+from pathlib import Path
+
 import pytest
 
 from resolve_upstream import load_versions, resolve
+
+
+def test_valkey_deployed_images_are_carried_in_upstream_inventory():
+    yaml = pytest.importorskip("yaml")
+    root = Path(__file__).resolve().parents[2]
+    versions_path = root / "ansible/group_vars/all/versions.yaml"
+    versions = load_versions(versions_path)
+    refs = resolve(root / "tooling/manifest/upstream-images.txt", versions_path)
+    release = next(
+        d
+        for d in yaml.safe_load_all(
+            (root / "deploy/base/valkey/resources.yaml").read_text()
+        )
+        if d["kind"] == "HelmRelease"
+    )
+    values = release["spec"]["values"]
+    for repo, var, image in [
+        ("docker.io/valkey/valkey", "valkey_image_tag", values["image"]),
+        (
+            "ghcr.io/oliver006/redis_exporter",
+            "redis_exporter_image_tag",
+            values["metrics"]["exporter"]["image"],
+        ),
+    ]:
+        assert image["tag"] == versions[var]
+        assert f"{repo}:{image['tag']}" in refs
 
 
 def test_load_versions_parses_flat_pairs(tmp_path):

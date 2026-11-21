@@ -1,3 +1,6 @@
+image:
+  tag: '{{ valkey_image_tag }}'
+
 auth:
   enabled: true
   usersExistingSecret: '{{ valkey_helm_release_name }}-auth'
@@ -38,6 +41,8 @@ valkeyConfig: |
 metrics:
   enabled: true
   exporter:
+    image:
+      tag: '{{ redis_exporter_image_tag }}'
     extraExporterSecrets:
       - name: '{{ valkey_helm_release_name }}-auth'
     extraVolumeMounts:
